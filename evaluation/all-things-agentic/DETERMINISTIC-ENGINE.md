@@ -1,65 +1,51 @@
 # Deterministic Engine & Control Boundaries
 
+## Source of Truth
+
+This document is derived from the current private `ArchePersona/Archemada` implementation. The implementation repository is authoritative.
+
 ## Why Deterministic Control Exists
 
-ARCHEMADA uses generative models for the work models are good at: interpreting intent, planning, constructing software, and evaluating complex outcomes.
+ARCHEMADA uses generative models for interpretation, planning, software construction, and higher-level evaluation.
 
-It does not ask the model to own every consequential system decision.
+It does not allow the model to own every consequential system decision.
 
-Several boundaries remain deterministic because they define authority, state, billing, persistence, or whether execution is allowed to begin at all.
+The deterministic layer controls authority, identity, lifecycle, provider resolution, workspace readiness, billing admission, and durable persistence.
 
 ## Model Reasoning vs. System Authority
 
-A useful distinction is:
-
 ```text
 MODEL:
-What should this software do?
-How should the implementation satisfy the BuildPrint?
-What changes are required?
-Does the produced result satisfy higher-level requirements?
+What does the user want?
+What implementation should satisfy the BuildPrint?
+What changes should be made?
+How well does the result satisfy higher-level requirements?
 
 SYSTEM:
-Which BuildPrint is active?
-Has the user approved it?
-Where is the authorized project workspace?
-Is that workspace actually ready?
-Which provider/model is effective for this stage?
-May paid execution begin?
-Did deterministic verification pass?
+Who owns this BuildPrint?
+What is its lifecycle state?
+What content hash identifies it?
+Which durable workspace is authorized?
+Is that workspace READY?
+Which provider/model is effective for PLAN / BUILD / VERIFY?
+May execution cross the billing boundary?
+Did concrete verification pass?
 Did durable writeback succeed?
 ```
 
-The model reasons within the engineering job. The application controls the boundary around the job.
+The model reasons inside the job. The application controls the authority around the job.
 
-## 1. Planning Target State
+## 1. BuildPrint Identity and Hashing
 
-Planning targets have explicit application state such as resolved, partial, unresolved, or irrelevant.
+BuildPrint content is serialized canonically and hashed with SHA-256.
 
-This matters because facts already established by the application should not be repeatedly re-decided by the model. A selected durable workspace, for example, can be supplied as structured state and marked resolved before the planning request reaches Gemini.
+The record is account-owned in Firestore and includes lifecycle state, planning provider/model provenance, timestamps, and execution linkage.
 
-## 2. Choice Resolution
+The browser renders BuildPrint state; Firestore is authoritative.
 
-When ARCHEMADA presents explicit numbered options, simple replies can be resolved deterministically against the active question.
+## 2. BuildPrint Lifecycle
 
-Example:
-
-```text
-1. GitHub repository
-2. Google Drive workspace
-
-User: 2
-```
-
-The application can resolve `2` to the semantic option before model interpretation. It does not globally reinterpret arbitrary numbers; the mapping is scoped to an active option set.
-
-This prevents a UI choice from depending on the model reconstructing what a bare number meant.
-
-## 3. BuildPrint Lifecycle
-
-BuildPrint state is application-owned.
-
-Typical lifecycle:
+Current lifecycle behavior includes:
 
 ```text
 DRAFT -> APPROVED
@@ -67,84 +53,108 @@ DRAFT -> APPROVED
   +-------> CANCELLED
 ```
 
-Approval is explicit and account-scoped. Revision creates a new draft rather than silently rewriting historical approved content.
+Approval is ownership-checked and idempotent.
 
-The model does not grant approval to itself.
+Approved artifacts are not rewritten in place. Revision creates a new DRAFT with its own ID/content hash and lineage back to the prior artifact.
 
-## 4. Destination Normalization
+The model cannot approve itself.
 
-Durable project locations must be machine-resolvable.
+## 3. Destination Normalization
 
-A GitHub destination must resolve to a canonical repository identity. A Google Drive destination must contain an actual resource ID rather than prose such as `selected_drive_workspace`.
+Executable project destinations must be machine-resolvable.
 
-Placeholders and conversational references are not accepted as executable project authority.
+GitHub destinations are normalized to canonical repository identities. Drive destinations must contain an actual Drive resource ID.
 
-## 5. Workspace Readiness
+Bare names, placeholders, or prose are not executable authority.
 
-The browser cannot declare a workspace READY merely because a label or selection exists in the UI.
+## 4. Backend Workspace Readiness
 
-Readiness is established through the backend against account-owned configuration and the actual destination.
+Workspace readiness is determined by backend state, not browser presentation.
 
-For Drive, identity and Drive authorization remain distinct. Firebase establishes ARCHEMADA account identity; the Google OAuth token authorizes Drive operations.
-
-## 6. Materializer Dispatch
-
-The approved destination is deterministically mapped to the correct workspace adapter.
-
-Examples:
+For Google Drive, readiness requires:
 
 ```text
-existing_repository + canonical GitHub location
-    -> GitHub materializer
-
-google_drive + Drive resource ID
-    -> Google Drive materializer
+BuildPrint destination == account drive_destination
+AND
+drive_ready == true
 ```
 
-ARCHESTRATOR receives the resulting local path. It does not choose which remote provider the project came from.
+Immediately before execution, Drive access is re-probed using the live interactive Drive token.
 
-## 7. Provider Inheritance
+For GitHub, read-only access is insufficient; the server must have write authority.
 
-PLAN, BUILD, and VERIFY are explicit roles.
+There is no production default workspace and no silent ephemeral fallback.
 
-If BUILD or VERIFY has no independent override, the application deterministically resolves that role to the PLAN provider/model. The model does not choose its own provider during the run.
+## 5. Provider Role Resolution
+
+ARCHEMADA resolves three explicit roles:
+
+```text
+PLAN
+BUILD
+VERIFY
+```
+
+Planning provenance is read from the BuildPrint. BUILD and VERIFY can use explicit account configuration or inherit PLAN through deterministic application logic.
+
+The model does not choose its own execution provider.
+
+## 6. Native Vertex Capability Check
+
+When BUILD resolves to `vertex_ai`, ARCHEMADA initializes the Vertex execution provider before admission.
+
+Production authentication is runtime Application Default Credentials. No browser API key is required for the Vertex path.
+
+Provider initialization failure is treated as configuration failure before paid execution.
+
+## 7. Materializer Dispatch
+
+The approved repository type deterministically selects the materialization path.
+
+```text
+google_drive
+    -> Google Drive materializer
+
+existing_repository + canonical GitHub identity
+    -> GitHub materializer
+```
+
+ARCHESTRATOR receives the prepared local workspace path; it does not decide which remote system owns the project.
 
 ## 8. Admission and Billing
 
-ARCHEMADA establishes required preconditions before paid execution begins.
+The execution boundary is deliberately ordered so configuration failures occur before paid admission.
 
-The intended ordering is:
+Conceptually:
 
 ```text
 workspace readiness
--> materialization
+-> live workspace access check
+-> provider role resolution
 -> provider capability
+-> workspace preparation/materialization
 -> billing admission
 -> RUNNING
 ```
 
-A repository typo, missing Drive authorization, or materialization failure should not become paid model runtime merely because the user clicked BUILD IT.
+A bad destination, missing authorization, or unavailable provider should not consume build time simply because BUILD IT was clicked.
 
-## 9. Deterministic Verification
+## 9. Verification
 
-Verification is not only a model opinion.
+Verification is not only model opinion.
 
-Concrete project checks can be executed deterministically. Their outputs become evidence for the execution record and, where model-backed verification is also used, evidence the model may interpret.
+Concrete deterministic checks can execute against the produced workspace. Model-backed verification may reason over the BuildPrint and result, but deterministic outcomes remain evidence rather than something the model is free to rewrite.
 
-A concrete failed check remains a failed check.
+## 10. Durable Completion
 
-## 10. Writeback Completion
+For a remote workspace, generating files in an ephemeral execution directory is not durable success.
 
-For remote workspaces, persistence success is a deterministic completion requirement.
+The approved result must be persisted back to the authorized durable workspace before ARCHEMADA can truthfully represent the remote project as durably complete.
 
-Producing files inside the temporary execution directory is not sufficient. Successful output must reach the approved durable destination before the system can truthfully claim a durable result.
+## Why This Matters
 
-Where supported, remote version identity is rechecked before writeback so source drift can block unsafe overwrite.
+ARCHEMADA is not trying to remove autonomy from the software agent.
 
-## Why This Matters for Autonomous Agents
+It is separating **reasoning authority** from **system authority**.
 
-The goal is not to reduce model autonomy to a script.
-
-The goal is to place autonomy inside explicit, inspectable constraints so the agent can do meaningful work without also being the sole authority over identity, money, destination, lifecycle, and truth.
-
-ARCHEMADA's deterministic engine is therefore less about replacing reasoning and more about **constraining where reasoning is allowed to become action**.
+The agent can make substantial engineering decisions inside the approved job while deterministic controls retain authority over identity, lifecycle, workspace, provider resolution, billing, verification evidence, and durable completion.
