@@ -1,35 +1,57 @@
 # Google Technology Stack
 
+## Source of Truth
+
+This evaluation document is derived from the private `ArchePersona/Archemada` implementation repository. The implementation repository is authoritative for current behavior.
+
 ## Mandatory Hackathon Stack
 
-ARCHEMADA's current implementation satisfies the three mandatory technology categories through the following stack:
+ARCHEMADA's current implementation satisfies the mandatory technology categories through the following stack:
 
 | Hackathon requirement | ARCHEMADA implementation |
 | --- | --- |
 | Gemini 3.5 or newer | Gemini 3.7 Flash |
 | Gemini access path | Vertex AI |
-| Google agent framework / SDK | Google GenAI SDK (`google-genai`) |
+| Google agent framework / SDK | Google GenAI SDK (`google-genai>=2.0.0`) |
 | Google Cloud infrastructure | Cloud Run + Firestore |
 
 Additional Google services include Firebase Authentication, Firebase Hosting, and Google Drive APIs.
 
 ## Google GenAI SDK
 
-The ARCHEMADA Python application declares:
+The private Python application declares:
 
 ```text
 google-genai>=2.0.0
 ```
 
-as a runtime dependency.
+The SDK is part of the actual Vertex provider path. It is not present only as a contest dependency.
 
-The SDK is used in the Google model provider path rather than being included only as an unused contest dependency.
+The planning adapter initializes:
 
-## Vertex AI + Gemini
+```text
+genai.Client(
+    vertexai=True,
+    project="archemada",
+    location="global"
+)
+```
 
-The current primary Google model path uses Gemini 3.7 Flash through Vertex AI.
+and invokes Gemini with:
 
-ARCHEMADA represents model usage by role:
+```text
+model="gemini-3.7-flash"
+```
+
+## Vertex AI Authentication
+
+Production Vertex authentication uses Application Default Credentials from the Cloud Run runtime identity.
+
+The Vertex path does not require a browser API key or BYOK credential.
+
+## Provider Roles
+
+ARCHEMADA represents model usage through explicit roles:
 
 ```text
 PLAN
@@ -37,74 +59,49 @@ BUILD
 VERIFY
 ```
 
-This allows model provenance to remain explicit in the engineering lifecycle. When BUILD or VERIFY does not specify an override, the role can inherit the PLAN provider/model through deterministic application configuration.
+The approved BuildPrint carries planning provider/model provenance. BUILD and VERIFY can use explicit configuration or inherit the PLAN provider/model through deterministic application logic.
 
 ## Cloud Run
 
-Cloud Run provides the server-side ARCHEMADA application/execution boundary.
+Cloud Run provides the backend/execution service boundary.
 
-The FastAPI service handles planning requests, authenticated state operations, BuildPrint lifecycle, workspace validation/materialization, execution admission, and execution coordination.
+The FastAPI application handles planning requests, authenticated state operations, BuildPrint lifecycle, workspace readiness, execution initiation, provider capability checks, and build coordination.
 
-Cloud Run's temporary local filesystem is treated as execution space, not as durable project storage.
+Cloud Run local storage is treated as temporary execution space, not durable project authority.
 
 ## Firestore
 
-Firestore provides durable state for the application layer.
+Firestore provides durable application state, including account/provider configuration, BuildPrint records and lifecycle, workspace authority/readiness, and execution linkage/state.
 
-Examples include:
-
-- account/provider configuration;
-- BuildPrint records and lifecycle;
-- selected workspace authority/readiness; and
-- execution-related records.
-
-This keeps engineering state outside the chat transcript and outside temporary container memory.
+BuildPrint state is account-owned and ownership-checked server-side.
 
 ## Firebase Authentication
 
-Firebase Authentication provides the application's Google identity boundary.
+Firebase Authentication provides account identity to the ARCHEMADA backend.
 
-The Firebase ID token authenticates the user to ARCHEMADA's backend.
-
-This is intentionally separate from Google Drive authorization.
+Firebase identity is intentionally distinct from Google Drive authorization.
 
 ## Firebase Hosting
 
-Firebase Hosting serves the ARCHEMADA browser application.
-
-The browser is the user's control surface for planning, BuildPrint review, workspace selection, provider configuration, and execution visibility.
+Firebase Hosting serves the browser application used for planning, BuildPrint control, workspace selection, provider settings, and execution visibility.
 
 ## Google Drive API
 
-Google Drive can act as a durable project workspace.
+Google Drive can act as the durable project authority.
 
-ARCHEMADA uses the narrow `drive.file` authorization scope for resources the user selects or creates through the application flow.
+A Drive workspace is READY only when the selected resource matches backend account authority and has been backend-verified. Before execution, Drive access is re-probed using the live interactive Drive authorization.
 
-The Drive OAuth access token is treated as authorization for Drive operations and remains distinct from the Firebase ID token used for ARCHEMADA identity.
+The current production contract has no unnamed default workspace and no silent ephemeral fallback.
 
-A Drive-backed build follows this pattern:
+## Demo Proof
 
-```text
-selected Drive folder
--> backend readiness proof
--> materialize into ephemeral workspace
--> autonomous build
--> verification
--> drift-aware writeback
--> durable Drive result
-```
+The demo should visibly prove the stack rather than relying only on this document:
 
-## Proof in the Demo
-
-The contest demo should visibly establish the Google stack rather than relying only on documentation.
-
-Useful evidence includes:
-
-- ARCHEMADA showing the effective Gemini/Vertex model role;
+- Gemini 3.7 Flash / Vertex provider identity;
+- Google GenAI SDK in the implementation dependency/provider path;
 - Cloud Run service/revision or execution logs;
-- Firestore state changing for the BuildPrint/execution;
-- the selected Google Drive workspace;
-- files written back to that Drive workspace after execution; and
-- the architecture diagram showing where the Google services participate.
+- Firestore-backed BuildPrint/execution state;
+- the selected Google Drive workspace; and
+- durable writeback of generated software to that workspace.
 
-The demo does not need to expose credentials, tokens, or private source code in order to prove those integrations.
+Credentials, OAuth tokens, and private source code do not need to be exposed to prove these integrations.
