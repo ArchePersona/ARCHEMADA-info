@@ -6,108 +6,120 @@ ARCHEMADA provides a user-facing environment for controlled autonomous software 
 
 Its purpose is not merely to generate code. It carries a software request through planning, approval, execution, verification, and durable persistence so the user can inspect both the intended work and the resulting work.
 
-## The Problem
-
-Code generation is only one part of software engineering.
-
-A real engineering job also requires the system to determine what the request means, identify dependencies, recognize decisions that require clarification, establish where the software lives, preserve the approved plan, perform the work, verify results, persist output, and report what happened.
-
-When those responsibilities disappear inside an opaque model interaction, the user has little basis for understanding whether the result stayed within the intended scope.
-
-ARCHEMADA is built around that gap.
+The private `ArchePersona/Archemada` implementation repository is the source of truth for current behavior. This public repository mirrors externally relevant behavior without exposing private source code.
 
 ## Product Model
 
 ARCHEMADA treats each request as an engineering job with explicit state and explicit authority boundaries.
 
-The user begins with intent rather than implementation detail. The system develops a plan through a guided interview, produces a BuildPrint, and waits for approval before execution. After approval, the selected durable workspace is materialized into a temporary execution environment, the build is carried forward through ARCHESTRATOR, the result is verified, and successful output is synchronized back to the durable workspace.
+The user begins with intent rather than implementation detail. The planning system works through unresolved engineering targets, produces a BuildPrint, and waits for explicit approval before execution.
 
 The conversation helps define the job. It is not the durable job record.
 
 ## BuildPrint
 
-The BuildPrint is the durable plan between planning and execution.
+BuildPrint is persisted as account-owned Firestore state.
 
-It can capture:
+A BuildPrint contains the engineering content required for the build together with repository/workspace destination and planning provenance. Content is hashed deterministically.
 
-- project objective;
-- assumptions;
-- core capabilities;
-- user experience requirements;
-- data requirements;
-- integrations;
-- safety and engineering constraints;
-- deliverables;
-- open questions; and
-- the authorized repository/workspace destination.
+Current lifecycle behavior includes:
 
-A BuildPrint starts as a draft. Approval changes its lifecycle state without silently changing the approved content or destination.
+```text
+DRAFT -> APPROVED
+  |         |
+  +-------> CANCELLED
+```
 
-## Human Involvement
+Approval is ownership-checked and idempotent. An approved artifact is not rewritten in place. Revision creates a new DRAFT lineage.
 
-Different jobs and users require different amounts of interaction during planning.
+## Planning
 
-ARCHEMADA separates planning involvement from execution authority.
+Planning is structured rather than purely conversational.
 
-Planning modes currently include:
+Already-established application state can resolve planning targets before the model runs. This is important for facts such as an already-selected durable workspace: the model should not be allowed to re-decide an authoritative destination.
 
-- **Cautious** — asks for more clarification and makes fewer assumptions.
-- **Moderate** — asks when a decision materially changes the build and makes safe assumptions where appropriate.
-- **Trust Me, Bro** — moves quickly and stops primarily for genuine blockers or consequential decisions.
-
-Greater planning autonomy does not bypass BuildPrint approval, workspace readiness, execution admission, verification, or persistence requirements.
+The planning layer also resolves simple application-owned semantics deterministically where appropriate, including numbered option replies when the active question defines those options.
 
 ## Durable Workspaces
 
-ARCHEMADA does not treat the temporary execution filesystem as the project authority.
+Production execution requires an authorized durable workspace.
 
-A project is associated with an authorized durable workspace. Current implementations include Google Drive folders and GitHub repositories.
+The current implementation supports:
 
-For Google Drive, an explicitly authorized folder can be materialized into an ephemeral execution workspace and synchronized back after successful execution. Workspace readiness is determined by backend authority rather than by browser presentation alone.
+- **Google Drive** — the account's selected Drive resource must match the BuildPrint destination and must have been backend-verified as ready.
+- **GitHub** — the destination must be canonical and the server must have write authority.
 
-## Execution
+There is no production default workspace and no silent ephemeral fallback.
 
-ARCHEMADA hands an approved engineering job to ARCHESTRATOR.
+The local filesystem used during execution is temporary working space, not project authority.
 
-ARCHESTRATOR is the reusable engineering lifecycle beneath the application. The separation keeps product interaction, authentication, billing/admission, provider configuration, and workspace authority out of the reusable execution engine.
+## Provider Roles
 
-## Verification
+ARCHEMADA resolves model work into explicit roles:
 
-Verification is treated as a distinct part of the job rather than a conversational afterthought.
+- **PLAN**
+- **BUILD**
+- **VERIFY**
 
-ARCHEMADA can combine deterministic checks with model-backed verification. Deterministic checks remain application-controlled; model-backed verification can reason about whether the result satisfies the approved BuildPrint.
+The current default provider is `vertex_ai` using **Gemini 3.7 Flash**.
 
-## Persistence
+The native Google provider is implemented with the **Google GenAI SDK** in Vertex mode. Production authentication uses runtime Application Default Credentials rather than a browser API key.
 
-A build is not considered successfully durable merely because files were produced in a temporary execution environment.
+BUILD and VERIFY can use explicit overrides or inherit the PLAN provider/model through deterministic application configuration.
 
-For remote workspaces, successful persistence requires writeback to the authorized source. The system records resulting provenance/version identity where available and does not intentionally treat ephemeral-only output as the final project authority.
+## Pre-Admission Controls
 
-## Google Cloud
+Before paid execution begins, the implementation establishes several preconditions:
 
-Current ARCHEMADA deployment uses Google infrastructure including Vertex AI / Gemini, Cloud Run, Firestore, Firebase Authentication, Firebase Hosting, and Google Drive APIs.
+1. the durable workspace is ready;
+2. Drive-backed work is re-probed using the live interactive Drive authorization;
+3. the effective BUILD provider/model is resolved;
+4. Vertex provider capability is initialized when Vertex is selected;
+5. only then may the execution cross the billing/admission boundary.
 
-The application can explicitly resolve model/provider roles for planning, build, and verification. BUILD and VERIFY may inherit the PLAN provider/model when no override is selected.
+The design intent is that configuration failures happen before build credit is consumed.
 
-## Relationship to ARCHESTRATOR
+## ARCHESTRATOR
 
-ARCHEMADA is the application. ARCHESTRATOR is the reusable engineering engine underneath it.
+ARCHEMADA is the application. ARCHESTRATOR is the reusable engineering engine beneath it.
 
 ARCHEMADA owns:
 
-- user interaction;
-- planning conversation;
+- browser/user interaction;
+- identity;
+- planning interaction;
 - BuildPrint lifecycle;
-- identity and workspace authority;
-- execution initiation;
+- workspace authority;
 - provider/model configuration;
+- execution initiation;
 - billing/admission boundaries; and
 - user-visible execution state.
 
-ARCHESTRATOR owns the bounded engineering lifecycle that carries approved work forward.
+ARCHESTRATOR owns the bounded engineering lifecycle that carries approved work forward inside the prepared workspace.
+
+## Verification and Persistence
+
+Verification is a distinct phase of the job rather than a conversational afterthought.
+
+The application can combine deterministic verification with model-backed verification. Concrete deterministic failures are not meant to be silently converted into success by model interpretation.
+
+For remote workspaces, successful persistence requires writeback to the authorized durable source. Producing files only in a temporary execution directory is not sufficient durable completion.
+
+## Current Google Infrastructure
+
+The current private implementation uses:
+
+- Gemini 3.7 Flash;
+- Vertex AI;
+- Google GenAI SDK (`google-genai>=2.0.0`);
+- Cloud Run;
+- Firestore;
+- Firebase Authentication;
+- Firebase Hosting; and
+- Google Drive APIs.
 
 ## Development Status
 
 ARCHEMADA is early-stage software under active development. Interfaces and deployment characteristics may change as the system is hardened.
 
-This repository describes the product at a public level and intentionally omits private implementation material.
+When this public documentation and the private implementation diverge, the private implementation is authoritative.
