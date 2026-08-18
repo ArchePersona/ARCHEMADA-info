@@ -6,99 +6,118 @@ ARCHEMADA is an ARCHETRON software-engineering application for turning a softwar
 
 It does not treat autonomous software construction as a single prompt. ARCHEMADA separates planning, approval, execution, verification, persistence, and review so the user can see what the system intends to do, authorize it, and inspect what actually happened.
 
-> This repository is the public information surface for ARCHEMADA. It does not contain the private application source code or proprietary implementation details.
+> This repository is the public information surface for ARCHEMADA. The private `ArchePersona/Archemada` implementation repository is the source of truth for current behavior. This repository mirrors externally relevant product and evaluation information without publishing private source code or proprietary implementation details.
 
 ## The Problem
 
 AI models can generate code. That is not the same thing as reliably delivering software.
 
-A real build has to answer questions that a chat transcript alone does not reliably answer:
+A real build has to answer questions a chat transcript alone does not reliably answer:
 
 - What exactly is being built?
 - Which decisions were made before execution?
 - What did the user approve?
 - Where does the project live?
-- Which model/provider performed each stage?
+- Which provider/model performed each stage?
 - What actually changed?
 - What passed verification?
 - Did the result survive the temporary execution environment?
 
 ARCHEMADA is built around those engineering boundaries.
 
-## What ARCHEMADA Does
+## Current Product Flow
 
-A typical ARCHEMADA workflow is:
+The current implementation follows this path:
 
 1. **Describe the software** in ordinary language.
-2. **Resolve consequential planning decisions** through a guided interview.
-3. **Create a BuildPrint** — the durable engineering plan for the job.
-4. **Review and approve** that BuildPrint before paid execution begins.
-5. **Materialize an authorized workspace** into a bounded execution environment.
-6. **Execute the build through ARCHESTRATOR.**
-7. **Verify the result** using deterministic checks and model-backed evaluation where appropriate.
-8. **Write the result back** to the authorized durable workspace.
-9. **Preserve execution state and provenance** so the result can be inspected after the run.
-
-The objective is straightforward: make autonomous software engineering easier to supervise, explain, and trust.
+2. **Resolve consequential planning decisions** through a structured interview.
+3. **Create a BuildPrint DRAFT** as durable engineering state.
+4. **Review and explicitly approve** the BuildPrint.
+5. **Require an authorized durable workspace** before execution.
+6. **Revalidate workspace and provider capability before billing admission.**
+7. **Materialize the durable workspace** into an ephemeral execution directory.
+8. **Execute the approved job through ARCHESTRATOR.**
+9. **Verify the result.**
+10. **Write the result back** to the authorized durable workspace.
+11. **Preserve execution state and provenance** for inspection.
 
 ## BuildPrint
 
-The BuildPrint is the central user-visible contract between planning and execution.
+The BuildPrint is the durable contract between planning and execution.
 
-It records the project objective, assumptions, capabilities, data requirements, integrations, constraints, deliverables, and the authorized project destination. A BuildPrint is created as a draft, explicitly approved, and then treated as the engineering authority for the build.
+BuildPrint state is persisted in Firestore and is account-owned. The current lifecycle includes:
 
-Approval is a real lifecycle boundary. ARCHEMADA does not silently reinterpret the approved destination or substitute a different workspace during execution.
+```text
+DRAFT -> APPROVED
+  |         |
+  +-------> CANCELLED
+```
 
-## Durable Workspaces
+Approval is ownership-checked and idempotent. Approved content is treated as immutable; revision creates a new DRAFT lineage rather than rewriting the historical artifact.
 
-ARCHEMADA separates temporary execution space from durable project authority.
+A BuildPrint also carries planning provider/model provenance and the authorized repository/workspace destination used by execution.
 
-Current workspace paths include:
+## Durable Workspace Authority
 
-- **Google Drive** — an explicitly selected/authorized Drive folder can be materialized for execution and synchronized back after the build.
-- **GitHub** — an authorized repository can serve as the durable source and destination for a build.
+ARCHEMADA does not allow a production build to rely on an unnamed or ephemeral-only destination.
 
-The build workspace inside the execution service is ephemeral. The durable source remains the authority.
+Current durable workspace types are:
+
+- **Google Drive** — a user-selected Drive resource that the backend has verified and recorded as ready.
+- **GitHub** — a canonical repository destination for which the server has write authority.
+
+There is no production default workspace and no silent ephemeral fallback.
+
+The temporary filesystem used during execution is working space. The durable workspace remains the project authority.
+
+## Provider Roles
+
+ARCHEMADA resolves model work into three explicit roles:
+
+- **PLAN** — planning/interview reasoning;
+- **BUILD** — software construction;
+- **VERIFY** — result evaluation.
+
+The current default provider is **Google Vertex AI**. The native Google path uses **Gemini 3.7 Flash** through the **Google GenAI SDK** with Vertex AI enabled.
+
+Production Vertex authentication uses Application Default Credentials from the runtime identity rather than a browser API key. BUILD and VERIFY may inherit the PLAN provider/model when no independent override is configured.
 
 ## ARCHESTRATOR
 
 ARCHEMADA is the application. **ARCHESTRATOR** is the reusable engineering lifecycle beneath it.
 
-ARCHEMADA owns the user-facing planning, BuildPrint lifecycle, account/workspace boundary, execution controls, provider selection, billing/admission boundary, and presentation of results.
+ARCHEMADA owns the user-facing planning, BuildPrint lifecycle, identity/workspace authority, execution initiation, provider configuration, billing/admission boundary, and presentation of state.
 
-ARCHESTRATOR owns the bounded engineering execution lifecycle used to carry approved software work forward.
+ARCHESTRATOR carries the approved engineering job through the bounded execution lifecycle inside the materialized workspace.
 
-Keeping those responsibilities separate lets the application experience and the underlying engineering engine evolve independently.
+## Current Google Stack
 
-## Current Google Cloud Profile
+The private implementation currently uses:
 
-The current ARCHEMADA application uses Google infrastructure including:
-
-- **Gemini 3.7 Flash** through **Vertex AI** for model-backed planning/build/verification paths;
-- **Cloud Run** for the application service/execution boundary;
-- **Firestore** for durable account, provider, BuildPrint, and execution state;
-- **Firebase Authentication** for Google account identity;
+- **Gemini 3.7 Flash** through **Vertex AI**;
+- **Google GenAI SDK** (`google-genai>=2.0.0`);
+- **Cloud Run** for the backend/execution service;
+- **Firestore** for durable application state;
+- **Firebase Authentication** for account identity;
 - **Firebase Hosting** for the browser application; and
-- **Google Drive API** for authorized durable workspace materialization and writeback.
-
-Provider/model selection remains explicit. BUILD and VERIFY can inherit the approved PLAN provider/model when no independent override is selected.
+- **Google Drive API** for durable Drive workspace access and writeback.
 
 ## Deterministic Boundaries
 
-ARCHEMADA deliberately keeps several critical decisions outside model discretion.
+Critical authority decisions remain outside model discretion. Current implementation-owned boundaries include:
 
-Examples include:
-
-- BuildPrint lifecycle state;
-- workspace readiness and destination identity;
+- BuildPrint lifecycle and content hashing;
+- account ownership checks;
+- durable workspace readiness;
 - repository/workspace normalization;
-- execution admission and billing boundaries;
+- provider role inheritance;
 - materializer dispatch;
-- provider inheritance;
+- pre-admission provider capability checks;
+- billing admission;
 - deterministic verification checks; and
-- writeback completion requirements.
+- durable writeback requirements.
 
-The model can reason inside the job. It does not get to redefine the job's authority boundaries.
+The model reasons inside the engineering job. It does not define the authority around the job.
 
 ## Documentation
 
@@ -122,15 +141,15 @@ The model can reason inside the job. It does not get to redefine the job's autho
 
 ## Development Status
 
-ARCHEMADA is active, early-stage software. Public documentation describes current product behavior and externally relevant architecture; it is not a promise that every interface or deployment detail will remain unchanged.
+ARCHEMADA is active, early-stage software. The private implementation repository is authoritative when public documentation and current code diverge.
 
 ## ARCHETRON
 
-ARCHEMADA is an ARCHETRON technology. Within the broader system, its responsibility is deliberately narrow: **the software-engineering application experience and the controlled path from user intent to an inspectable software result.**
+ARCHEMADA is an ARCHETRON technology. Its responsibility is the software-engineering application experience and the controlled path from user intent to an inspectable software result.
 
 ## Repository Scope
 
-`ARCHEMADA-info` is intended for public product documentation, technical orientation, evaluation material, and other information that can be shared without exposing the private ARCHEMADA implementation.
+`ARCHEMADA-info` is intended for public product documentation, technical orientation, evaluation material, and other information that can be shared without exposing the private implementation.
 
 Publication of this repository does not grant access to ARCHEMADA source code, private systems, non-public interfaces, or ARCHETRON intellectual property.
 
