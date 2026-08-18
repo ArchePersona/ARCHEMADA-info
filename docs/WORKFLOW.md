@@ -1,100 +1,96 @@
 # ARCHEMADA Build Lifecycle
 
+The private `ArchePersona/Archemada` repository is the source of truth for current lifecycle behavior. This document mirrors the externally relevant execution path.
+
 ## 1. Intent
 
-The user describes the software they want built in ordinary language.
+The user describes the software they want built.
 
-ARCHEMADA treats that statement as the beginning of an engineering job, not as permission to immediately generate code.
+ARCHEMADA treats that as the beginning of an engineering job, not as immediate permission to generate code.
 
 ## 2. Planning
 
-The planning agent resolves decisions that materially affect the build.
+The planning system works through unresolved engineering targets and preserves already-established structured state.
 
-Examples can include:
+The current default Google path uses Gemini 3.7 Flash through Vertex AI via the Google GenAI SDK.
 
-- product purpose;
-- target users;
-- required capabilities;
-- integrations;
-- data requirements;
-- authentication/access expectations;
-- deployment constraints;
-- acceptance criteria; and
-- durable project destination.
+## 3. BuildPrint DRAFT
 
-Already-established structured state is authoritative. If a durable workspace has already been selected and authorized, the planner should not re-ask where the project lives.
+Planning produces a BuildPrint DRAFT persisted as account-owned Firestore state.
 
-## 3. BuildPrint Draft
-
-When planning is sufficiently resolved, ARCHEMADA creates a BuildPrint DRAFT.
-
-The BuildPrint records the engineering plan and project destination as durable application state.
-
-The user can inspect the draft before execution.
+The BuildPrint contains engineering content, repository/workspace destination, planning provider/model provenance, and a deterministic content hash.
 
 ## 4. Approval
 
-Approval is explicit.
+Approval is explicit and ownership-checked.
 
-Before a DRAFT becomes APPROVED, ARCHEMADA checks that the project destination is machine-resolvable and that the durable workspace is ready.
+Before DRAFT becomes APPROVED, ARCHEMADA validates the destination and durable-workspace readiness.
 
-Approval does not spend build time and does not automatically mutate the plan.
+Approval is idempotent and does not itself start paid execution.
 
-## 5. Workspace Revalidation
+## 5. Provider Resolution
 
-Immediately before execution, ARCHEMADA revalidates the durable workspace.
+At the execution boundary, ARCHEMADA resolves effective provider/model roles:
 
-For Google Drive, the selected resource must match the approved BuildPrint destination and the live authorization must be sufficient to read the workspace.
+```text
+PLAN
+BUILD
+VERIFY
+```
 
-## 6. Materialization
+BUILD and VERIFY can be explicitly configured or deterministically inherit PLAN provenance from the approved BuildPrint.
 
-The durable remote workspace is materialized into a unique ephemeral execution directory.
+## 6. Workspace Revalidation
 
-ARCHESTRATOR receives that local workspace path rather than provider-specific Drive or GitHub logic.
+Immediately before execution, durable workspace readiness is checked again.
+
+For Google Drive, the BuildPrint Drive resource must match account authority and a live Drive token is used to re-probe access.
+
+For GitHub, the destination must be canonical and server write authority must be available.
 
 ## 7. Provider Capability
 
-ARCHEMADA resolves the effective BUILD provider/model and checks capability before paid admission.
+For the Vertex path, ARCHEMADA initializes the Vertex execution provider before admission.
 
-Current role resolution supports explicit BUILD configuration or inheritance from PLAN.
+Production Vertex authentication uses runtime Application Default Credentials rather than a browser API key.
 
-## 8. Admission
+## 8. Materialization
 
-Only after workspace and provider preconditions succeed does the execution cross the billing/admission boundary.
+The durable workspace is materialized into an ephemeral local execution directory.
 
-The run then becomes a real execution record.
+ARCHESTRATOR receives that prepared workspace path instead of owning Drive/GitHub account semantics.
 
-## 9. ARCHESTRATOR Execution
+## 9. Billing Admission
 
-ARCHESTRATOR carries the approved engineering job forward inside the materialized workspace.
+Only after the preconditions required for the run are established may execution cross the billing/admission boundary.
 
-The lifecycle is bounded by the BuildPrint, execution environment, provider configuration, and system controls established before admission.
+The design intent is that workspace/configuration/provider failures occur before build credit is consumed.
 
-## 10. Verification
+## 10. ARCHESTRATOR Execution
 
-The produced software is checked before durable completion.
+ARCHESTRATOR carries the approved engineering job through the bounded build lifecycle using the resolved BUILD provider/model.
 
-Verification can include deterministic project checks and model-backed assessment against the approved BuildPrint.
+## 11. Verification
 
-A failed verification remains a failed verification; model reasoning does not silently convert a concrete failure into success.
+Verification is a distinct lifecycle phase.
 
-## 11. Writeback
+The system can combine deterministic checks with model-backed evaluation. Concrete deterministic outcomes remain authoritative rather than being silently rewritten by model interpretation.
 
-Successful output is synchronized back to the authorized durable workspace.
+## 12. Writeback
 
-For Drive, ARCHEMADA compares source version identity where supported so remote drift can block unsafe overwrite.
+Successful remote-workspace output is synchronized back to the authorized durable workspace.
 
-## 12. Completion
+The temporary execution directory is not the final project authority.
 
-A remote-workspace build is not considered durably complete merely because code exists in the ephemeral execution directory.
+## 13. Completion
 
-The intended completion condition is:
+For a remote workspace, durable completion requires more than local file generation:
 
 ```text
 approved work executed
 + verification completed
-+ writeback succeeded
++ durable writeback succeeded
 = durable result
 ```
 
-Execution records and provenance remain available after the temporary workspace is cleaned up.
+BuildPrint/execution linkage and durable application state remain available after the temporary workspace is gone.
