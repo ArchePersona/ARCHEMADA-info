@@ -1,57 +1,67 @@
 # ARCHEMADA Architecture
 
+## Source of Truth
+
+The private `ArchePersona/Archemada` implementation repository is authoritative for current behavior. This document mirrors externally relevant architecture from that implementation.
+
 ## Overview
 
 ARCHEMADA separates user intent, engineering authority, execution, verification, and persistence.
 
-The application is intentionally not a single model call wrapped in a UI. Critical state and lifecycle decisions are represented explicitly so the model can operate inside a controlled engineering job without becoming the authority for every boundary around that job.
+Critical lifecycle and authority decisions are explicit application state rather than model-owned convention.
 
 ```mermaid
 flowchart TD
     U[User] --> UI[ARCHEMADA Web App]
-    UI --> PLAN[Planning / Gemini]
+    UI --> PLAN[Structured Planning]
+    PLAN --> VERTEX[Google GenAI SDK + Vertex AI / Gemini 3.7 Flash]
     PLAN --> BP[BuildPrint DRAFT]
     BP --> APPROVE[Explicit Approval]
     APPROVE --> READY[Durable Workspace Readiness]
     READY --> MAT[Workspace Materializer]
     MAT --> EXEC[Ephemeral Execution Workspace]
     EXEC --> AR[ARCHESTRATOR]
-    AR --> MODEL[Vertex AI / Gemini Build Role]
+    AR --> BUILD[Resolved BUILD Provider / Model]
     AR --> VERIFY[Verification]
     VERIFY --> WB[Writeback]
-    WB --> DRIVE[Google Drive Workspace]
-    WB --> GH[GitHub Repository]
-    UI <--> FS[Firestore State]
+    WB --> DRIVE[Google Drive]
+    WB --> GH[GitHub]
+    UI <--> FS[Firestore]
 ```
 
-## Application Layer
+## Application Boundary
 
-The ARCHEMADA application owns the boundaries closest to the user and account:
+ARCHEMADA owns the application-specific control surface:
 
-- browser experience;
-- Google/Firebase identity;
-- provider and model selection;
+- browser interaction;
+- Firebase-backed identity;
+- provider/model configuration;
 - planning interaction;
 - BuildPrint persistence and lifecycle;
-- durable workspace selection/readiness;
+- durable workspace selection and readiness;
 - execution initiation;
-- billing/admission control;
-- execution status presentation; and
-- restoration of durable application state.
+- pre-admission validation;
+- billing/admission boundaries; and
+- execution state presentation.
 
-## Planning Layer
+## Planning Provider
 
-Planning is a structured conversation rather than an unbounded prompt chain.
+The current default provider is `vertex_ai`.
 
-The planner works through unresolved engineering targets and produces a BuildPrint when the required decisions are sufficiently resolved. Structured application state can mark targets as resolved before the model runs. This prevents already-established facts — such as an authorized workspace — from being re-decided by the model.
+The native planning adapter uses the Google GenAI SDK in Vertex mode:
 
-The planning system also resolves deterministic UI semantics outside the model where appropriate. For example, when the application presents numbered options, an answer such as `2` can be resolved against the active option set before model interpretation.
+```text
+genai.Client(vertexai=True, project="archemada", location="global")
+    .models.generate_content(model="gemini-3.7-flash", ...)
+```
 
-## BuildPrint Layer
+Production authentication uses Application Default Credentials from the runtime identity. The browser does not provide a Vertex API key.
 
-The BuildPrint is the durable contract between planning and execution.
+## BuildPrint Authority
 
-Its lifecycle currently includes:
+BuildPrint records are account-owned and stored in Firestore.
+
+Current lifecycle:
 
 ```text
 DRAFT -> APPROVED
@@ -59,104 +69,100 @@ DRAFT -> APPROVED
   +-------> CANCELLED
 ```
 
-Revision creates a new draft lineage rather than rewriting historical approved artifacts.
+BuildPrint content is hashed deterministically. Approval is ownership-checked and idempotent. Revision creates a new DRAFT lineage rather than modifying the historical approved artifact.
 
-Approval validates that the project destination is executable and that its durable workspace is ready. Approval does not itself start a paid build.
+Approval also verifies that the BuildPrint's destination is executable and that the corresponding durable workspace is ready.
 
-## Workspace Authority
+## Durable Workspace Readiness
 
-ARCHEMADA distinguishes durable project authority from temporary execution storage.
+Workspace readiness is backend-authoritative.
 
 ### Google Drive
 
-A user-selected Drive folder is authorized through the user's Google session using the narrow `drive.file` scope. Identity and Drive authorization are separate credentials: Firebase identity authenticates the ARCHEMADA account; the Google OAuth access token authorizes Drive operations.
+A Drive workspace is ready only when:
 
-The token is intentionally held in memory rather than persisted by the browser application.
+- an actual Drive destination is recorded for the account;
+- the BuildPrint destination matches that recorded destination; and
+- the backend has recorded `drive_ready=true` after resource verification.
+
+Immediately before execution, Drive-backed work is re-probed with the live interactive Drive token.
 
 ### GitHub
 
-An authorized GitHub repository can also act as a durable workspace. Repository destinations are normalized into machine-resolvable identities before they are allowed to participate in approval/execution.
+A GitHub workspace must be a canonical repository destination and the server must hold GitHub write authority. Read-only clone access is not treated as READY.
 
-## Materialization
+### No Production Fallback
 
-Remote workspaces are converted into a bounded local execution workspace through a materializer boundary.
-
-```text
-Durable source
-    -> resolve source type
-    -> materialize
-    -> ephemeral execution path
-    -> ARCHESTRATOR
-```
-
-The execution engine receives a workspace path; it does not need Drive- or GitHub-specific logic.
-
-## ARCHESTRATOR Boundary
-
-ARCHESTRATOR is the reusable engineering engine beneath ARCHEMADA.
-
-ARCHEMADA determines which approved job should run and establishes the environment in which it may run. ARCHESTRATOR carries that approved engineering work through its bounded execution lifecycle.
-
-This separation prevents the reusable execution engine from absorbing account, UI, provider-settings, durable-workspace, and product-policy responsibilities.
+There is no user-facing local or ephemeral fallback. `local_path` exists only as an internal test/development seam.
 
 ## Provider Roles
 
-ARCHEMADA represents model roles independently:
+The application resolves three provider roles independently:
 
-- **PLAN** — planning/interview reasoning;
-- **BUILD** — model-backed software construction;
-- **VERIFY** — model-backed result evaluation.
+```text
+PLAN
+BUILD
+VERIFY
+```
 
-BUILD and VERIFY may explicitly select their own provider/model or inherit the PLAN provider/model. Inheritance is application state, not a model guess.
+The approved BuildPrint carries planning provenance. BUILD and VERIFY can use explicit account configuration or inherit from PLAN. That inheritance is resolved by application code before execution.
 
-The current Google path uses Gemini through Vertex AI.
+## Pre-Admission Ordering
 
-## Admission and Billing
-
-Durable workspace readiness, materialization, and provider capability are established before paid execution admission.
-
-The intended order is:
+The implementation intentionally validates critical execution capability before billing admission:
 
 ```text
 workspace readiness
--> materialization
--> provider capability
+-> live Drive re-probe when applicable
+-> effective BUILD provider/model resolution
+-> provider capability check
+-> materialization / execution preparation
 -> billing admission
 -> RUNNING
 ```
 
-Pre-admission failures do not intentionally consume build time.
+For the Vertex path, provider initialization is probed before admission.
 
-## Verification
+## Materialization Boundary
 
-Verification is separated from generation.
+Durable workspaces are translated into a local execution path by the materializer layer.
 
-Deterministic verification can inspect concrete properties such as whether required project checks execute successfully. Model-backed verification can then reason over the BuildPrint and produced result without replacing deterministic outcomes.
+```text
+Durable source
+-> source-type resolution
+-> materialize
+-> ephemeral execution directory
+-> ARCHESTRATOR
+```
 
-## Writeback
+ARCHESTRATOR operates on the prepared workspace path and does not need to own Google Drive or GitHub account semantics.
 
-For remote workspaces, writeback is part of the completion boundary.
+## ARCHESTRATOR Boundary
 
-The result is synchronized back to the authorized durable source with drift protection where supported. Remote changes discovered between materialization and writeback can block overwrite rather than silently replacing newer work.
+ARCHESTRATOR is the reusable engineering lifecycle beneath ARCHEMADA.
 
-The execution environment is temporary; the durable workspace remains the project authority.
+ARCHEMADA establishes the approved job, workspace authority, provider configuration, and admission conditions. ARCHESTRATOR carries that approved job through execution.
 
 ## State
 
-Firestore is used for durable application state including account/provider configuration, BuildPrint lifecycle, and execution records.
+Firestore is authoritative for durable application state such as:
 
-This lets the UI restore meaningful engineering state without relying on the browser transcript as the sole source of truth.
+- BuildPrint lifecycle;
+- account/provider configuration;
+- workspace authority/readiness; and
+- execution linkage/state.
 
-## Security Boundary
+The browser renders this state; it is not the durable source of truth.
 
-ARCHEMADA separates:
+## Security Separation
 
-- identity credentials;
-- provider credentials;
-- Drive authorization;
-- durable project state; and
-- ephemeral execution state.
+The implementation separates:
 
-Secrets are not intentionally written into BuildPrint content or project workspaces.
+- Firebase account identity;
+- Vertex runtime identity;
+- Google Drive OAuth authorization;
+- provider credentials for non-Vertex providers;
+- BuildPrint/application state; and
+- ephemeral execution files.
 
-For more detail on the public security posture, see [../SECURITY.md](../SECURITY.md).
+Secrets are not intended to become BuildPrint content or durable project artifacts.
