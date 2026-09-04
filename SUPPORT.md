@@ -8,7 +8,7 @@ This repository is the public information surface for ARCHEMADA. Documentation m
 
 ## Product and Business Inquiries
 
-For product evaluation, licensing, partnership, or other business inquiries, use an official ARCHETRON contact channel.
+For product, licensing, partnership, or other business inquiries, use an official VOLSHi contact channel.
 
 ## Security Issues
 
