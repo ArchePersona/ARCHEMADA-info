@@ -4,7 +4,7 @@
 
 Please do not disclose suspected vulnerabilities publicly through repository issues, discussions, social media, or other public channels.
 
-If you believe you have identified a security issue affecting ARCHEMADA, contact ARCHETRON privately and include enough information to reproduce and evaluate the issue where practical.
+If you believe you have identified a security issue affecting ARCHEMADA, contact VOLSHi privately and include enough information to reproduce and evaluate the issue where practical.
 
 A useful report includes:
 
@@ -23,7 +23,7 @@ Do not include passwords, API keys, access tokens, private customer information,
 
 `ARCHEMADA-info` is a public documentation repository and does not contain the private ARCHEMADA application source.
 
-Security reports should concern actual ARCHEMADA behavior or an ARCHETRON-controlled public surface. General dependency reports or automated findings that cannot affect the deployed product may not represent actionable vulnerabilities.
+Security reports should concern actual ARCHEMADA behavior or a VOLSHi-controlled public surface. General dependency reports or automated findings that cannot affect the deployed product may not represent actionable vulnerabilities.
 
 ## Disclosure
 
@@ -31,4 +31,4 @@ Please allow reasonable time for investigation and remediation before public dis
 
 ---
 
-Copyright © 2026 ARCHETRON. All rights reserved.
+Copyright © 2026 VOLSHi. All rights reserved.
