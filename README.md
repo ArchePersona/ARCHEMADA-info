@@ -113,7 +113,7 @@ ARCHEMADA is active, early-stage software. The private implementation repository
 
 ## ARCHETRON
 
-ARCHETRON is the VOLSHi technology ecosystem. ARCHEMADA's responsibility within that ecosystem is the software-engineering application experience and the controlled path from user intent to an inspectable software result.
+ARCHETRON is the VOLSHi technology ecosystem. ARCHEMADA is an application on the span between human intent and machine execution: it carries a person's request into a controlled engineering process and returns an inspectable software result. The intelligence provider can change; the planning, authority, execution, verification, persistence, and evidence boundaries remain owned by the surrounding system.
 
 ## Repository Scope
 
