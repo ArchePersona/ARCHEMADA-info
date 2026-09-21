@@ -1,6 +1,6 @@
 # ARCHEMADA
 
-**Tell it what you want built. Work through the plan. Let the system carry the build forward.**
+**A controlled software-construction system from human intent to verified execution.**
 
 ARCHEMADA is a software-engineering application within the ARCHETRON ecosystem built by **VOLSHi**. It turns a software request into a controlled, inspectable build process.
 
@@ -109,7 +109,9 @@ The model reasons inside the engineering job. It does not define the authority a
 
 ## Development Status
 
-ARCHEMADA is active, early-stage software. The private implementation repository is authoritative when public documentation and current code diverge.
+ARCHEMADA is an active software-construction system under continued development. Its implemented lifecycle already separates planning, approval, durable workspace authority, provider roles, execution, verification, persistence, and provenance rather than collapsing software delivery into a model conversation.
+
+The private implementation repository remains authoritative when public documentation and current code diverge.
 
 ## ARCHETRON
 
