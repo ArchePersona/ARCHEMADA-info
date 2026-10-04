@@ -12,7 +12,7 @@ ARCHEMADA treats that as the beginning of an engineering job, not as immediate p
 
 The planning system works through unresolved engineering targets and preserves already-established structured state.
 
-The current default Google path uses Gemini 3.7 Flash through Vertex AI via the Google GenAI SDK.
+Planning uses the configured model provider.
 
 ## 3. BuildPrint DRAFT
 
@@ -50,9 +50,9 @@ For GitHub, the destination must be canonical and server write authority must be
 
 ## 7. Provider Capability
 
-For the Vertex path, ARCHEMADA initializes the Vertex execution provider before admission.
+ARCHEMADA initializes the configured execution provider before admission.
 
-Production Vertex authentication uses runtime Application Default Credentials rather than a browser API key.
+Production provider authentication uses the runtime identity rather than a browser API key.
 
 ## 8. Materialization
 

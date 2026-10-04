@@ -61,9 +61,9 @@ ARCHEMADA resolves model work into explicit roles:
 - **BUILD**
 - **VERIFY**
 
-The current default provider is `vertex_ai` using **Gemini 3.7 Flash**.
+Model work is performed by the configured model provider; the specific provider and model are deployment configuration, not part of the product contract.
 
-The native Google provider is implemented with the **Google GenAI SDK** in Vertex mode. Production authentication uses runtime Application Default Credentials rather than a browser API key.
+Provider authentication uses the runtime's own credentials rather than a browser API key.
 
 BUILD and VERIFY can use explicit overrides or inherit the PLAN provider/model through deterministic application configuration.
 
@@ -74,7 +74,7 @@ Before paid execution begins, the implementation establishes several preconditio
 1. the durable workspace is ready;
 2. Drive-backed work is re-probed using the live interactive Drive authorization;
 3. the effective BUILD provider/model is resolved;
-4. Vertex provider capability is initialized when Vertex is selected;
+4. the selected provider's capability is initialized;
 5. only then may the execution cross the billing/admission boundary.
 
 The design intent is that configuration failures happen before build credit is consumed.
@@ -105,18 +105,17 @@ The application can combine deterministic verification with model-backed verific
 
 For remote workspaces, successful persistence requires writeback to the authorized durable source. Producing files only in a temporary execution directory is not sufficient durable completion.
 
-## Current Google Infrastructure
+## Current Infrastructure
 
-The current private implementation uses:
+The current private implementation runs on:
 
-- Gemini 3.7 Flash;
-- Vertex AI;
-- Google GenAI SDK (`google-genai>=2.0.0`);
 - Cloud Run;
 - Firestore;
 - Firebase Authentication;
 - Firebase Hosting; and
 - Google Drive APIs.
+
+Model providers are interchangeable deployment configuration and are intentionally not named here.
 
 ## Development Status
 

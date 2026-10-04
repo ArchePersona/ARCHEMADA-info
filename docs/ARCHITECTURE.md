@@ -14,7 +14,7 @@ Critical lifecycle and authority decisions are explicit application state rather
 flowchart TD
     U[User] --> UI[ARCHEMADA Web App]
     UI --> PLAN[Structured Planning]
-    PLAN --> VERTEX[Google GenAI SDK + Vertex AI / Gemini 3.7 Flash]
+    PLAN --> PROVIDER[Configured model provider]
     PLAN --> BP[BuildPrint DRAFT]
     BP --> APPROVE[Explicit Approval]
     APPROVE --> READY[Durable Workspace Readiness]
@@ -46,16 +46,9 @@ ARCHEMADA owns the application-specific control surface:
 
 ## Planning Provider
 
-The current default provider is `vertex_ai`.
+The planning adapter calls the configured model provider. The provider and model are deployment configuration, not part of the architecture contract.
 
-The native planning adapter uses the Google GenAI SDK in Vertex mode:
-
-```text
-genai.Client(vertexai=True, project="archemada", location="global")
-    .models.generate_content(model="gemini-3.7-flash", ...)
-```
-
-Production authentication uses Application Default Credentials from the runtime identity. The browser does not provide a Vertex API key.
+Production authentication uses the runtime identity's credentials. The browser does not provide a provider API key.
 
 ## BuildPrint Authority
 
@@ -121,7 +114,7 @@ workspace readiness
 -> RUNNING
 ```
 
-For the Vertex path, provider initialization is probed before admission.
+For the configured provider path, provider initialization is probed before admission.
 
 ## Materialization Boundary
 
@@ -159,9 +152,9 @@ The browser renders this state; it is not the durable source of truth.
 The implementation separates:
 
 - Firebase account identity;
-- Vertex runtime identity;
+- provider runtime identity;
 - Google Drive OAuth authorization;
-- provider credentials for non-Vertex providers;
+- provider credentials for alternate providers;
 - BuildPrint/application state; and
 - ephemeral execution files.
 
